@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель управления - InteGroTech</title>
+    <link rel="stylesheet" href="/panel_menu/panel.css">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="header">
+            <div class="logo">
+                <h1>InteGroTech</h1>
+            </div>
+            <div class="user-menu">
+                <a href="#">Профиль</a>
+                <a href="/logout">Выход</a>
+            </div>
+        </header>
+
+        <div class="content-area">
+            <aside class="sidebar">
+                <h3>Панель управления</h3>
+                
+                <div class="menu-section">
+                    <h4>Пользователи и аналитика</h4>
+                    <a href="#" class="menu-item" data-table="clients">Клиенты</a>
+                    <a href="#" class="menu-item" data-table="employees">Сотрудники</a>
+                    <a href="#" class="menu-item" data-table="reports">Отчёты</a>
+                </div>
+
+                <div class="menu-section">
+                    <h4>Управление устройствами</h4>
+                    <a href="#" class="menu-item" data-table="devices">Устройства</a>
+                    <a href="#" class="menu-item" data-table="devicemaintenance">Обслуживание устройств</a>
+                </div>
+
+                <div class="menu-section">
+                    <h4>Сбор и обработка данных</h4>
+                    <a href="#" class="menu-item" data-table="devicedata">Данные устройств</a>
+                    <a href="#" class="menu-item" data-table="dataerrors">Ошибки данных</a>
+                </div>
+            </aside>
+
+            <main class="main-content">
+                <div class="content-header">
+                    <div class="header-content">
+                        <div>
+                            <h2 id="content-title">Добро пожаловать</h2>
+                            <p id="content-description">Выберите раздел из меню для просмотра данных</p>
+                        </div>
+                        <div class="header-actions">
+                            <button id="add-record-btn" class="btn-add" style="display: none;">
+                                <span class="btn-icon">+</span>
+                                Добавить запись
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="table-content">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <h3>Выберите раздел</h3>
+                        <p>Используйте меню слева для навигации по разделам системы</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    <div id="record-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Добавить запись</h3>
+                <button class="modal-close" id="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="record-form">
+                    <div id="form-fields">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn-cancel" id="cancel-btn">Отмена</button>
+                        <button type="submit" class="btn-save" id="save-btn">Сохранить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div id="delete-modal" class="modal-overlay">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3>Подтверждение удаления</h3>
+                <button class="modal-close" id="close-delete-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить эту запись? Это действие нельзя отменить.</p>
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" id="cancel-delete-btn">Отмена</button>
+                    <button type="button" class="btn-delete" id="confirm-delete-btn">Удалить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/panel_menu/menu.js"></script>
+</body>
+</html>

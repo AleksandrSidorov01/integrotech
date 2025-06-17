@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InteGroTech - Авторизация</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="logo">
+            <h1>InteGroTech</h1>
+        </div>
+        <h2>Авторизация</h2>
+        <form id="loginForm" action="/login" method="POST">
+            <div class="input-group">
+                <label for="textBoxUsername">Имя пользователя:</label>
+                <input type="text" id="textBoxUsername" name="username" placeholder="Введите имя пользователя" required>
+            </div>
+            <div class="input-group">
+                <label for="textBoxPassword">Пароль:</label>
+                <input type="password" id="textBoxPassword" name="password" placeholder="Введите пароль" required>
+            </div>
+            <div class="buttons">
+                <button class="btn-login" type="submit">Войти</button>
+            </div>
+        </form>
+        <div class="switch-link">
+            <a href="/register">Нет аккаунта? Зарегистрироваться</a>
+        </div>
+    </div>
+    <script src="login.js"></script>
+</body>
+</html>

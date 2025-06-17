@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InteGroTech - Регистрация</title>
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="register.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="logo">
+            <h1>InteGroTech</h1>
+        </div>
+        <h2>Регистрация</h2>
+        <form id="registerForm" action="/register" method="POST">
+            <div class="form-grid">
+                <div class="input-group">
+                    <label for="textBoxFirstName">Имя:</label>
+                    <input type="text" id="textBoxFirstName" name="firstName" placeholder="Введите имя" required>
+                </div>
+                <div class="input-group">
+                    <label for="textBoxLastName">Фамилия:</label>
+                    <input type="text" id="textBoxLastName" name="lastName" placeholder="Введите фамилию" required>
+                </div>
+                <div class="full-width input-group">
+                    <label for="textBoxEmail">Email:</label>
+                    <input type="email" id="textBoxEmail" name="email" placeholder="Введите email" required>
+                </div>
+                <div class="full-width input-group">
+                    <label for="textBoxUsername">Имя пользователя:</label>
+                    <input type="text" id="textBoxUsername" name="username" placeholder="Введите имя пользователя" required>
+                </div>
+                <div class="full-width input-group">
+                    <label for="textBoxPassword">Пароль:</label>
+                    <input type="password" id="textBoxPassword" name="password" placeholder="Введите пароль" required>
+                </div>
+                <div class="full-width input-group">
+                    <label for="textBoxConfirmPassword">Подтвердите пароль:</label>
+                    <input type="password" id="textBoxConfirmPassword" name="confirmPassword" placeholder="Подтвердите пароль" required>
+                </div>
+            </div>
+            <div class="buttons">
+                <button class="btn-login" type="submit">Создать аккаунт</button>
+                <a href="/" class="btn-register">Вернуться к входу</a>
+            </div>
+        </form>
+        <div class="switch-link">
+            <a href="/">Уже есть аккаунт? Войти</a>
+        </div>
+    </div>
+    <script src="register.js"></script>
+</body>
+</html>
