@@ -1,68 +1,101 @@
+/**
+ * ПРОСТОЙ И РАБОЧИЙ register.js
+ * Без излишних усложнений
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
-    const inputs = [
-        { id: 'textBoxFirstName', placeholder: 'Введите имя' },
-        { id: 'textBoxLastName', placeholder: 'Введите фамилию' },
-        { id: 'textBoxEmail', placeholder: 'Введите email' },
-        { id: 'textBoxUsername', placeholder: 'Введите имя пользователя' },
-        { id: 'textBoxPassword', placeholder: 'Введите пароль' },
-        { id: 'textBoxConfirmPassword', placeholder: 'Подтвердите пароль' }
-    ];
-
-    inputs.forEach(input => {
-        const element = document.getElementById(input.id);
-        element.addEventListener('focus', () => {
-            if (element.value === input.placeholder) {
-                element.value = '';
-                element.style.color = 'rgba(255, 255, 255, 0.4)';
-            }
-        });
-        element.addEventListener('blur', () => {
-            if (!element.value) {
-                element.value = input.placeholder;
-                element.style.color = 'rgba(255, 255, 255, 0.4)';
-            }
-        });
-    });
-
-    const passwordInputs = ['textBoxPassword', 'textBoxConfirmPassword'];
-    passwordInputs.forEach(id => {
-        const input = document.getElementById(id);
-        input.addEventListener('focus', () => {
-            if (input.value === 'Введите пароль' || input.value === 'Подтвердите пароль') {
-                input.type = 'text';
-            }
-        });
-        input.addEventListener('blur', () => {
-            if (!input.value || input.value === '') {
-                input.type = 'password';
-                input.value = input.placeholder;
-                input.style.color = 'rgba(255, 255, 255, 0.4)';
-            } else if (input.value !== input.placeholder) {
-                input.type = 'password';
-            }
-        });
-    });
-
     const form = document.getElementById('registerForm');
-    const errorElement = document.getElementById('error');
 
+    // Инициализация уведомлений
+    function initToast() {
+        if (!window.toast) {
+            window.toast = new ToastManager();
+        }
+    }
+
+    // Основная функция обработки формы
     form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+        e.preventDefault(); // Блокируем обычную отправку
+        
+        initToast();
+
+        // Получаем данные формы
         const formData = new FormData(form);
+        const data = {};
+        formData.forEach((value, key) => {
+            data[key] = value.trim();
+        });
+
+        // Простая валидация
+        if (!data.firstName || !data.lastName || !data.email || !data.username || !data.password || !data.confirmPassword) {
+            window.toast.error('Ошибка', 'Заполните все поля');
+            return;
+        }
+
+        if (data.password !== data.confirmPassword) {
+            window.toast.error('Ошибка', 'Пароли не совпадают');
+            return;
+        }
+
+        if (data.password.length < 6) {
+            window.toast.error('Ошибка', 'Пароль должен содержать минимум 6 символов');
+            return;
+        }
+
+        // Показываем загрузку
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Создание...';
 
         try {
+            // Отправляем запрос
             const response = await fetch('/register', {
                 method: 'POST',
-                body: formData
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data),
+                credentials: 'same-origin'
             });
-            const result = await response.text();
-            if (errorElement) {
-                errorElement.innerText = result;
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                // Успех
+                window.toast.success('Успех!', 'Аккаунт создан! Перенаправляем на вход...', {
+                    duration: 3000,
+                    sound: true
+                });
+
+                // Перенаправляем
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 2000);
+
+            } else {
+                // Ошибка
+                window.toast.error('Ошибка регистрации', result.message || 'Попробуйте еще раз', {
+                    duration: 5000
+                });
+                
+                // Очищаем пароли
+                form.querySelector('#textBoxPassword').value = '';
+                form.querySelector('#textBoxConfirmPassword').value = '';
             }
+
         } catch (error) {
-            if (errorElement) {
-                errorElement.innerText = 'Ошибка при отправке запроса';
-            }
+            console.error('Ошибка:', error);
+            window.toast.error('Ошибка', 'Проблема с соединением', {
+                duration: 5000
+            });
+        } finally {
+            // Восстанавливаем кнопку
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
         }
     });
+
+    // Инициализируем при загрузке
+    initToast();
 });

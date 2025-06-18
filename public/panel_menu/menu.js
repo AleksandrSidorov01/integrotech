@@ -1,3 +1,21 @@
+/**
+ * =====================================================
+ * ПАНЕЛЬ УПРАВЛЕНИЯ С УВЕДОМЛЕНИЯМИ
+ * =====================================================
+ * 
+ * Обновленный файл menu.js для панели управления
+ * с интеграцией системы всплывающих уведомлений.
+ * 
+ * Функциональность:
+ * - Управление данными в таблицах (CRUD операции)
+ * - Уведомления о успешных операциях
+ * - Уведомления об ошибках
+ * - Подтверждения действий
+ * - Валидация данных перед отправкой
+ * 
+ * Добавлено для проекта "Интегротех"
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
     const menuItems = document.querySelectorAll('.menu-item');
     const contentTitle = document.getElementById('content-title');
@@ -22,6 +40,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentTable = '';
     let currentRecord = null;
     let isEditMode = false;
+
+    /**
+     * Функция инициализации системы уведомлений
+     * Создает экземпляр ToastManager если он еще не создан
+     */
+    function initToastSystem() {
+        if (!window.toast) {
+            window.toast = new ToastManager();
+        }
+    }
 
     const tableNames = {
         'clients': 'Клиенты',
@@ -195,12 +223,71 @@ document.addEventListener('DOMContentLoaded', () => {
         ]
     };
 
-    // Функция для перевода заголовка колонки
+    /**
+     * Функция для перевода заголовка колонки
+     * @param {string} header - Заголовок для перевода
+     * @returns {string} - Переведенный заголовок
+     */
     function translateHeader(header) {
         return columnTranslations[header] || header;
     }
 
-    // Функция создания формы для добавления/редактирования записи
+    /**
+     * Валидация данных формы перед отправкой
+     * @param {FormData} formData - Данные формы
+     * @param {string} tableName - Название таблицы
+     * @returns {Object} - Результат валидации
+     */
+    function validateFormData(formData, tableName) {
+        const result = { isValid: true, errors: [] };
+        const fields = tableFields[tableName] || [];
+        
+        for (const field of fields) {
+            const value = formData.get(field.name);
+            
+            // Проверка обязательных полей
+            if (field.required && (!value || value.trim() === '')) {
+                result.errors.push(`Поле "${translateHeader(field.name)}" обязательно для заполнения`);
+                result.isValid = false;
+                continue;
+            }
+            
+            // Валидация email
+            if (field.type === 'email' && value) {
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(value)) {
+                    result.errors.push(`Поле "${translateHeader(field.name)}" содержит некорректный email`);
+                    result.isValid = false;
+                }
+            }
+            
+            // Валидация телефона
+            if (field.type === 'tel' && value) {
+                const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
+                if (!phoneRegex.test(value.replace(/[\s\-\(\)]/g, ''))) {
+                    result.errors.push(`Поле "${translateHeader(field.name)}" содержит некорректный номер телефона`);
+                    result.isValid = false;
+                }
+            }
+            
+            // Валидация числовых полей
+            if (field.type === 'number' && value) {
+                const numValue = parseInt(value);
+                if (isNaN(numValue) || numValue < 1) {
+                    result.errors.push(`Поле "${translateHeader(field.name)}" должно содержать положительное число`);
+                    result.isValid = false;
+                }
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * Создание формы для добавления/редактирования записи
+     * @param {string} tableName - Название таблицы
+     * @param {Object} record - Запись для редактирования (null для нового)
+     */
     function createForm(tableName, record = null) {
         const fields = tableFields[tableName] || [];
         let formHTML = '';
@@ -247,28 +334,53 @@ document.addEventListener('DOMContentLoaded', () => {
         formFields.innerHTML = formHTML;
     }
 
-    // Функция для показа модального окна
+    /**
+     * Функция для показа модального окна с анимацией
+     * @param {HTMLElement} modal - Модальное окно
+     */
     function showModal(modal) {
         modal.classList.add('show');
         document.body.style.overflow = 'hidden';
+        
+        // Инициализируем уведомления при показе модального окна
+        initToastSystem();
     }
 
-    // Функция для скрытия модального окна
+    /**
+     * Функция для скрытия модального окна
+     * @param {HTMLElement} modal - Модальное окно
+     */
     function hideModal(modal) {
         modal.classList.remove('show');
         document.body.style.overflow = '';
     }
 
-    // Функция для загрузки данных таблицы
+    /**
+     * Функция для загрузки данных таблицы с обработкой ошибок
+     * @param {string} tableName - Название таблицы
+     */
     async function loadTableData(tableName) {
+        // Инициализируем систему уведомлений
+        initToastSystem();
+        
         try {
             const response = await fetch(`/panel/data?table=${tableName}`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
+            
             const data = await response.json();
 
             if (data.error) {
+                // Показываем уведомление об ошибке
+                if (window.toast) {
+                    window.toast.error(
+                        'Ошибка загрузки данных',
+                        data.error,
+                        { duration: 5000 }
+                    );
+                }
+                
                 tableContent.innerHTML = `<div class="error-message">${data.error}</div>`;
                 return;
             }
@@ -282,13 +394,41 @@ document.addEventListener('DOMContentLoaded', () => {
                         <p>В разделе "${displayName}" пока нет записей</p>
                     </div>
                 `;
+                
+                // Показываем информационное уведомление
+                if (window.toast) {
+                    window.toast.info(
+                        'Раздел пуст',
+                        `В разделе "${displayName}" пока нет записей`,
+                        { duration: 3000 }
+                    );
+                }
                 return;
             }
 
             renderTable(data, tableName);
+            
+            // Показываем уведомление об успешной загрузке
+            if (window.toast) {
+                window.toast.success(
+                    'Данные загружены',
+                    `Загружено ${data.length} записей из раздела "${tableNames[tableName]}"`,
+                    { duration: 2000 }
+                );
+            }
 
         } catch (error) {
             console.error('Error fetching data:', error);
+            
+            // Показываем уведомление о сетевой ошибке
+            if (window.toast) {
+                window.toast.error(
+                    'Ошибка соединения',
+                    'Не удалось загрузить данные. Проверьте соединение с сервером',
+                    { duration: 6000 }
+                );
+            }
+            
             tableContent.innerHTML = `
                 <div class="error-message">
                     Ошибка при загрузке данных. Проверьте соединение с сервером.
@@ -297,7 +437,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Функция для отображения таблицы
+    /**
+     * Функция для отображения таблицы
+     * @param {Array} data - Данные для отображения
+     * @param {string} tableName - Название таблицы
+     */
     function renderTable(data, tableName) {
         const allHeaders = Object.keys(data[0]);
         const headers = allHeaders.filter(header => 
@@ -337,8 +481,15 @@ document.addEventListener('DOMContentLoaded', () => {
         tableContent.innerHTML = tableHTML;
     }
 
-    // Глобальные функции для кнопок действий
+    /**
+     * Глобальная функция для редактирования записи
+     * @param {string} tableName - Название таблицы
+     * @param {number} recordId - ID записи
+     */
     window.editRecord = async function(tableName, recordId) {
+        // Инициализируем систему уведомлений
+        initToastSystem();
+        
         try {
             const response = await fetch(`/panel/data?table=${tableName}`, {
                 method: 'GET',
@@ -355,24 +506,65 @@ document.addEventListener('DOMContentLoaded', () => {
                 modalTitle.textContent = `Редактировать запись - ${tableNames[tableName]}`;
                 createForm(tableName, record);
                 showModal(recordModal);
+                
+                // Показываем информационное уведомление
+                if (window.toast) {
+                    window.toast.info(
+                        'Режим редактирования',
+                        'Измените необходимые поля и нажмите "Сохранить"',
+                        { duration: 3000 }
+                    );
+                }
             }
         } catch (error) {
             console.error('Error loading record:', error);
-            alert('Ошибка при загрузке записи');
+            
+            // Показываем уведомление об ошибке
+            if (window.toast) {
+                window.toast.error(
+                    'Ошибка загрузки',
+                    'Не удалось загрузить данные записи для редактирования',
+                    { duration: 5000 }
+                );
+            }
         }
     };
 
+    /**
+     * Глобальная функция для удаления записи
+     * @param {string} tableName - Название таблицы
+     * @param {number} recordId - ID записи
+     */
     window.deleteRecord = function(tableName, recordId) {
+        // Инициализируем систему уведомлений
+        initToastSystem();
+        
         currentTable = tableName;
         currentRecord = { id: recordId };
         showModal(deleteModal);
+        
+        // Показываем предупреждение
+        if (window.toast) {
+            window.toast.warning(
+                'Подтверждение удаления',
+                'Убедитесь, что действительно хотите удалить эту запись',
+                { duration: 4000 }
+            );
+        }
     };
 
-    // Обработчики событий для меню
+    // ==========================================
+    // ОБРАБОТЧИКИ СОБЫТИЙ МЕНЮ И ИНТЕРФЕЙСА
+    // ==========================================
+
+    /**
+     * Обработчики событий для пунктов меню
+     */
     menuItems.forEach(item => {
         item.addEventListener('click', async (e) => {
             e.preventDefault();
             
+            // Снимаем активность с других пунктов меню
             menuItems.forEach(mi => mi.classList.remove('active'));
             item.classList.add('active');
 
@@ -386,23 +578,42 @@ document.addEventListener('DOMContentLoaded', () => {
             // Показать кнопку добавления записи
             addRecordBtn.style.display = 'flex';
 
+            // Показываем индикатор загрузки
             tableContent.innerHTML = '<div class="loading">Загрузка данных...</div>';
+            
+            // Загружаем данные таблицы
             await loadTableData(tableName);
         });
     });
 
-    // Обработчик для кнопки добавления записи
+    /**
+     * Обработчик для кнопки добавления записи
+     */
     addRecordBtn.addEventListener('click', () => {
         if (currentTable) {
+            // Инициализируем систему уведомлений
+            initToastSystem();
+            
             isEditMode = false;
             currentRecord = null;
             modalTitle.textContent = `Добавить запись - ${tableNames[currentTable]}`;
             createForm(currentTable);
             showModal(recordModal);
+            
+            // Показываем подсказку
+            if (window.toast) {
+                window.toast.info(
+                    'Добавление записи',
+                    'Заполните все обязательные поля и нажмите "Сохранить"',
+                    { duration: 3000 }
+                );
+            }
         }
     });
 
-    // Обработчики для закрытия модальных окон
+    /**
+     * Обработчики для закрытия модальных окон
+     */
     closeModalBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
             const modal = e.target.closest('.modal-overlay');
@@ -413,7 +624,9 @@ document.addEventListener('DOMContentLoaded', () => {
     cancelBtn.addEventListener('click', () => hideModal(recordModal));
     cancelDeleteBtn.addEventListener('click', () => hideModal(deleteModal));
 
-    // Закрытие модального окна при клике вне его
+    /**
+     * Закрытие модального окна при клике вне его
+     */
     [recordModal, deleteModal].forEach(modal => {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
@@ -422,16 +635,35 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Обработчик отправки формы
+    /**
+     * Обработчик отправки формы записи
+     */
     recordForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        
+        // Инициализируем систему уведомлений
+        initToastSystem();
         
         const formData = new FormData(recordForm);
         const data = {};
         
+        // Преобразуем FormData в объект
         formData.forEach((value, key) => {
             data[key] = value;
         });
+
+        // Валидируем данные
+        const validation = validateFormData(formData, currentTable);
+        if (!validation.isValid) {
+            if (window.toast) {
+                window.toast.error(
+                    'Ошибка валидации',
+                    validation.errors.join('. '),
+                    { duration: 6000 }
+                );
+            }
+            return;
+        }
 
         try {
             const url = isEditMode ? 
@@ -439,6 +671,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 `/panel/data/${currentTable}`;
             
             const method = isEditMode ? 'PUT' : 'POST';
+            
+            // Показываем индикатор загрузки
+            const saveButton = document.getElementById('save-btn');
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.textContent = 'Сохранение...';
+            }
             
             const response = await fetch(url, {
                 method: method,
@@ -451,20 +690,66 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 hideModal(recordModal);
                 await loadTableData(currentTable);
-                alert(isEditMode ? 'Запись успешно обновлена!' : 'Запись успешно добавлена!');
+                
+                // Показываем уведомление об успехе
+                const action = isEditMode ? 'обновлена' : 'добавлена';
+                const actionPast = isEditMode ? 'обновления' : 'добавления';
+                
+                if (window.toast) {
+                    window.toast.success(
+                        `Запись ${action}!`,
+                        `Данные успешно сохранены в разделе "${tableNames[currentTable]}"`,
+                        { 
+                            duration: 4000,
+                            sound: true 
+                        }
+                    );
+                }
             } else {
                 const errorText = await response.text();
-                alert('Ошибка при сохранении: ' + errorText);
+                
+                // Показываем уведомление об ошибке
+                if (window.toast) {
+                    window.toast.error(
+                        'Ошибка сохранения',
+                        `Не удалось сохранить запись: ${errorText}`,
+                        { duration: 6000 }
+                    );
+                }
             }
         } catch (error) {
             console.error('Error saving record:', error);
-            alert('Ошибка при сохранении записи');
+            
+            // Показываем уведомление о сетевой ошибке
+            if (window.toast) {
+                window.toast.error(
+                    'Ошибка соединения',
+                    'Не удалось сохранить запись. Проверьте соединение с сервером',
+                    { duration: 6000 }
+                );
+            }
+        } finally {
+            // Восстанавливаем кнопку
+            const saveButton = document.getElementById('save-btn');
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.textContent = 'Сохранить';
+            }
         }
     });
 
-    // Обработчик подтверждения удаления
+    /**
+     * Обработчик подтверждения удаления
+     */
     confirmDeleteBtn.addEventListener('click', async () => {
+        // Инициализируем систему уведомлений
+        initToastSystem();
+        
         try {
+            // Показываем индикатор загрузки
+            confirmDeleteBtn.disabled = true;
+            confirmDeleteBtn.textContent = 'Удаление...';
+            
             const response = await fetch(`/panel/data/${currentTable}/${currentRecord.id}`, {
                 method: 'DELETE'
             });
@@ -472,14 +757,286 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 hideModal(deleteModal);
                 await loadTableData(currentTable);
-                alert('Запись успешно удалена!');
+                
+                // Показываем уведомление об успешном удалении
+                if (window.toast) {
+                    window.toast.success(
+                        'Запись удалена!',
+                        `Запись успешно удалена из раздела "${tableNames[currentTable]}"`,
+                        { 
+                            duration: 4000,
+                            sound: true 
+                        }
+                    );
+                }
             } else {
                 const errorText = await response.text();
-                alert('Ошибка при удалении: ' + errorText);
+                
+                // Показываем уведомление об ошибке
+                if (window.toast) {
+                    window.toast.error(
+                        'Ошибка удаления',
+                        `Не удалось удалить запись: ${errorText}`,
+                        { duration: 6000 }
+                    );
+                }
             }
         } catch (error) {
             console.error('Error deleting record:', error);
-            alert('Ошибка при удалении записи');
+            
+            // Показываем уведомление о сетевой ошибке
+            if (window.toast) {
+                window.toast.error(
+                    'Ошибка соединения',
+                    'Не удалось удалить запись. Проверьте соединение с сервером',
+                    { duration: 6000 }
+                );
+            }
+        } finally {
+            // Восстанавливаем кнопку
+            confirmDeleteBtn.disabled = false;
+            confirmDeleteBtn.textContent = 'Удалить';
         }
     });
+
+    // ==========================================
+    // ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ
+    // ==========================================
+
+    // Инициализируем систему уведомлений при загрузке страницы
+    initToastSystem();
+    /**
+     * Приветственные уведомления при входе в панель
+    */
+    function showWelcomeNotifications() {
+        initToastSystem();
+        
+        // Приветственное сообщение
+        setTimeout(() => {
+            const currentHour = new Date().getHours();
+            let greeting;
+            
+            if (currentHour < 12) {
+                greeting = 'Доброе утро!';
+            } else if (currentHour < 18) {
+                greeting = 'Добрый день!';
+            } else {
+                greeting = 'Добрый вечер!';
+            }
+            
+            window.toast.success(
+                greeting,
+                'Добро пожаловать в панель управления InteGroTech',
+                { duration: 4000, sound: true }
+            );
+        }, 500);
+
+        // Подсказка по навигации
+        setTimeout(() => {
+            window.toast.info(
+                'Навигация',
+                'Используйте меню слева для перехода между разделами',
+                { duration: 5000, closable: true }
+            );
+        }, 3000);
+
+        // Показываем статус системы
+        setTimeout(() => {
+            window.toast.success(
+                'Система готова',
+                'Все модули загружены и готовы к работе',
+                { duration: 3000 }
+            );
+        }, 5000);
+    }
+
+    /**
+     * Уведомления для операций с данными
+     */
+    function enhanceDataOperations() {
+        // При начале загрузки данных
+        const originalLoadTableData = loadTableData;
+        
+        window.loadTableData = async function(tableName) {
+            initToastSystem();
+            
+            // Уведомление о начале загрузки
+            window.toast.info(
+                'Загрузка данных',
+                `Получаем данные из раздела "${tableNames[tableName]}"...`,
+                { duration: 2000 }
+            );
+            
+            return originalLoadTableData(tableName);
+        };
+        
+        // Улучшенные уведомления для операций CRUD
+        const originalShowModal = showModal;
+        
+        window.showModal = function(modal) {
+            if (modal.id === 'record-modal') {
+                if (isEditMode) {
+                    window.toast.info(
+                        'Режим редактирования',
+                        'Измените нужные поля и сохраните изменения',
+                        { duration: 4000 }
+                    );
+                } else {
+                    window.toast.info(
+                        'Добавление записи',
+                        'Заполните все обязательные поля',
+                        { duration: 4000 }
+                    );
+                }
+            } else if (modal.id === 'delete-modal') {
+                window.toast.warning(
+                    'Подтверждение удаления',
+                    'Это действие нельзя будет отменить',
+                    { duration: 5000 }
+                );
+            }
+            
+            return originalShowModal(modal);
+        };
+    }
+
+    /**
+     * Уведомления о состоянии сессии
+     */
+    function setupSessionNotifications() {
+        // Предупреждение о неактивности
+        let inactivityTimer;
+        let warningShown = false;
+        
+        function resetInactivityTimer() {
+            clearTimeout(inactivityTimer);
+            warningShown = false;
+            
+            // 15 минут бездействия
+            inactivityTimer = setTimeout(() => {
+                if (!warningShown) {
+                    window.toast.warning(
+                        'Долгое бездействие',
+                        'Сессия может завершиться через 5 минут бездействия',
+                        { duration: 8000, closable: true }
+                    );
+                    warningShown = true;
+                }
+            }, 15 * 60 * 1000);
+        }
+        
+        // Отслеживаем активность пользователя
+        ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'].forEach(event => {
+            document.addEventListener(event, resetInactivityTimer, true);
+        });
+        
+        resetInactivityTimer();
+    }
+
+    /**
+     * Уведомления о производительности
+     */
+    function setupPerformanceNotifications() {
+        // Мониторинг времени загрузки данных
+        const originalFetch = window.fetch;
+        
+        window.fetch = async function(...args) {
+            const startTime = Date.now();
+            
+            try {
+                const response = await originalFetch(...args);
+                const endTime = Date.now();
+                const duration = endTime - startTime;
+                
+                // Если запрос долгий
+                if (duration > 3000) {
+                    window.toast.warning(
+                        'Медленное соединение',
+                        'Данные загружаются дольше обычного',
+                        { duration: 4000 }
+                    );
+                }
+                
+                return response;
+            } catch (error) {
+                window.toast.error(
+                    'Ошибка сети',
+                    'Проблемы с подключением к серверу',
+                    { duration: 6000 }
+                );
+                throw error;
+            }
+        };
+    }
+
+    /**
+     * Контекстные подсказки для разных разделов
+     */
+    function addContextualHints() {
+        const sectionHints = {
+            'clients': 'В этом разделе вы можете управлять информацией о клиентах компании',
+            'employees': 'Здесь хранятся данные о сотрудниках и их должностях',
+            'devices': 'Управление IoT устройствами и их характеристиками',
+            'devicedata': 'Просмотр данных, поступающих с устройств',
+            'devicemaintenance': 'Планирование и учёт технического обслуживания',
+            'reports': 'Создание и просмотр аналитических отчётов',
+            'dataerrors': 'Мониторинг и исправление ошибок в данных'
+        };
+        
+        // При переключении между разделами показываем подсказки
+        menuItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const tableName = item.getAttribute('data-table');
+                const hint = sectionHints[tableName];
+                
+                if (hint) {
+                    setTimeout(() => {
+                        window.toast.info(
+                            `Раздел: ${tableNames[tableName]}`,
+                            hint,
+                            { duration: 5000, closable: true }
+                        );
+                    }, 1000);
+                }
+            });
+        });
+    }
+
+    /**
+     * Уведомления о горячих клавишах
+     */
+    function setupKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            // Ctrl + H для показа подсказок
+            if (e.ctrlKey && e.key === 'h') {
+                e.preventDefault();
+                window.toast.info(
+                    'Горячие клавиши',
+                    'Ctrl+H - эта подсказка, Esc - закрыть модальные окна',
+                    { duration: 6000, closable: true }
+                );
+            }
+            
+            // Esc для закрытия модальных окон
+            if (e.key === 'Escape') {
+                const activeModal = document.querySelector('.modal-overlay.show');
+                if (activeModal) {
+                    hideModal(activeModal);
+                    window.toast.info(
+                        'Модальное окно закрыто',
+                        'Используйте Esc для быстрого закрытия окон',
+                        { duration: 2000 }
+                    );
+                }
+            }
+        });
+    }
+    showWelcomeNotifications();
+    enhanceDataOperations();
+    setupSessionNotifications();
+    setupPerformanceNotifications();
+    addContextualHints();
+    setupKeyboardShortcuts();
+
+    console.log('✅ Панель управления с уведомлениями инициализирована');
 });

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>InteGroTech - Авторизация</title>
     <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="../toast-notifications.css">
 </head>
 <body>
     <div class="auth-container">
@@ -12,6 +13,7 @@
             <h1>InteGroTech</h1>
         </div>
         <h2>Авторизация</h2>
+        <!-- ВОЗВРАЩАЕМ НОРМАЛЬНУЮ ФОРМУ как было изначально -->
         <form id="loginForm" action="/login" method="POST">
             <div class="input-group">
                 <label for="textBoxUsername">Имя пользователя:</label>
@@ -29,6 +31,7 @@
             <a href="/register">Нет аккаунта? Зарегистрироваться</a>
         </div>
     </div>
-    <script src="login.js"></script>
+    <script src="../toast-notifications.js"></script>
+    <script src="./login.js"></script>
 </body>
 </html>

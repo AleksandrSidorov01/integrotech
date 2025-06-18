@@ -3,8 +3,22 @@ const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
+const session = require('express-session'); // ДОБАВЛЕНО: Подключение express-session
 
 const app = express();
+
+// ============================================
+// НАСТРОЙКА СЕССИЙ - ДОБАВЛЕНО ДЛЯ БЕЗОПАСНОСТИ
+// ============================================
+app.use(session({
+    secret: 'integrotech_secret_key_2025', // Секретный ключ для подписи сессий
+    resave: false,              // Не пересохранять сессию, если она не изменилась
+    saveUninitialized: false,   // Не сохранять неинициализированные сессии
+    cookie: { 
+        secure: false,          // true только для HTTPS
+        maxAge: 24 * 60 * 60 * 1000 // Сессия живет 24 часа
+    }
+}));
 
 // Настройка статической обработки файлов из папки public и её подпапок
 app.use(express.static(path.join(__dirname, 'public')));
@@ -27,85 +41,182 @@ connection.connect(err => {
     console.log('Connected to MySQL');
 });
 
+// ============================================
+// MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ
+// ============================================
+/**
+ * Middleware для проверки авторизации пользователя
+ * Перенаправляет неавторизованных пользователей на страницу входа
+ */
+function requireAuth(req, res, next) {
+    if (req.session && req.session.userId) {
+        // Пользователь авторизован, продолжаем
+        return next();
+    } else {
+        // Пользователь не авторизован, перенаправляем на страницу входа
+        return res.redirect('/');
+    }
+}
+
+/**
+ * Middleware для проверки, авторизован ли пользователь уже
+ * Перенаправляет авторизованных пользователей в панель
+ */
+function redirectIfAuthenticated(req, res, next) {
+    if (req.session && req.session.userId) {
+        // Пользователь уже авторизован, перенаправляем в панель
+        return res.redirect('/panel');
+    } else {
+        // Пользователь не авторизован, продолжаем
+        return next();
+    }
+}
+
+// ============================================
+// МАРШРУТЫ АВТОРИЗАЦИИ И РЕГИСТРАЦИИ
+// ============================================
+
 // Маршрут для формы авторизации
-app.get('/', (req, res) => {
+app.get('/', redirectIfAuthenticated, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login', 'login.html'));
 });
 
+/**
+ * ИСПРАВЛЕННЫЙ маршрут для обработки авторизации
+ * Теперь правильно работает с AJAX запросами и сессиями
+ */
 app.post('/login', upload.none(), (req, res) => {
     if (!req.body || !req.body.username || !req.body.password) {
-        return res.status(400).send('Заполните все поля');
+        // НЕ res.redirect! Возвращаем на ту же страницу с ошибкой
+        return res.status(400).render || res.status(400).sendFile(path.join(__dirname, 'public', 'login', 'login.html'));
     }
 
     const { username, password } = req.body;
 
-    connection.query('SELECT password FROM users WHERE username = ? ORDER BY id DESC LIMIT 1', [username], (err, results) => {
+    connection.query('SELECT id, password FROM users WHERE username = ? ORDER BY id DESC LIMIT 1', [username], (err, results) => {
         if (err) {
-            return res.status(500).send('Ошибка сервера');
+            console.error('Database error:', err);
+            // НЕ редирект! Отправляем обратно на страницу входа
+            return res.status(500).sendFile(path.join(__dirname, 'public', 'login', 'login.html'));
         }
+        
         if (results.length === 0) {
-            return res.status(401).send('Неверные данные');
+            // НЕ редирект! Остаемся на странице входа
+            return res.status(401).sendFile(path.join(__dirname, 'public', 'login', 'login.html'));
         }
-        const hashedPassword = results[0].password;
+        
+        const user = results[0];
+        const hashedPassword = user.password;
+        
         if (bcrypt.compareSync(password, hashedPassword)) {
-            res.redirect('/panel');
+            // УСПЕХ - создаем сессию и редиректим на панель
+            req.session.userId = user.id;
+            req.session.username = username;
+            req.session.loginTime = new Date();
+            
+            console.log('✅ Пользователь авторизован:', username);
+            
+            // ТОЛЬКО при успехе редиректим
+            return res.redirect('/panel');
         } else {
-            res.status(401).send('Неверные данные');
+            // НЕ редирект! Остаемся на странице входа
+            return res.status(401).sendFile(path.join(__dirname, 'public', 'login', 'login.html'));
         }
     });
 });
 
 // Маршрут для формы регистрации
-app.get('/register', (req, res) => {
+app.get('/register', redirectIfAuthenticated, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'register', 'register.html'));
 });
 
-app.post('/register', upload.none(), (req, res) => {
+/**
+ * ИСПРАВЛЕННЫЙ маршрут для обработки регистрации
+ */
+app.post('/register', (req, res) => {
+    // Проверяем наличие всех необходимых полей
     if (!req.body || !req.body.username || !req.body.password || !req.body.confirmPassword ||
         !req.body.firstName || !req.body.lastName || !req.body.email) {
-        return res.status(400).send('Введите информацию сначала');
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Введите информацию во все поля' 
+        });
     }
 
     const { username, password, confirmPassword, firstName, lastName, email } = req.body;
 
+    // Проверяем совпадение паролей
     if (password !== confirmPassword) {
-        return res.status(400).send('Пароли не совпадают');
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Пароли не совпадают' 
+        });
     }
 
-    connection.query('SELECT username FROM users WHERE username = ?', [username], (err, results) => {
+    // Проверяем существование пользователя
+    connection.query('SELECT username FROM users WHERE username = ? OR email = ?', [username, email], (err, results) => {
         if (err) {
-            return res.status(500).send('Ошибка сервера');
-        }
-        if (results.length > 0) {
-            return res.status(400).send('Это имя пользователя уже существует');
+            console.error('Database error:', err);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Ошибка сервера' 
+            });
         }
 
+        if (results.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Это имя пользователя или email уже существует' 
+            });
+        }
+
+        // Хэшируем пароль
         const hashedPassword = bcrypt.hashSync(password, 10);
 
         if (!hashedPassword || hashedPassword === '0') {
-            return res.status(500).send('Ошибка хэширования пароля');
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Ошибка хэширования пароля' 
+            });
         }
 
+        // Добавляем пользователя в базу данных
         connection.query(
             'INSERT INTO users (username, password, firstName, lastName, email) VALUES (?, ?, ?, ?, ?)',
             [username, hashedPassword, firstName, lastName, email],
-            (err) => {
+            (err, result) => {
                 if (err) {
-                    return res.status(500).send('Ошибка при регистрации: ' + err.message);
+                    console.error('Insert error:', err);
+                    return res.status(500).json({ 
+                        success: false, 
+                        message: 'Ошибка при регистрации: ' + err.message 
+                    });
                 }
-                res.status(200).send('Аккаунт создан!');
+
+                console.log('✅ Новый пользователь зарегистрирован:', username, 'ID:', result.insertId);
+
+                // Успешная регистрация
+                return res.status(200).json({ 
+                    success: true, 
+                    message: 'Аккаунт создан!' 
+                });
             }
         );
     });
 });
 
-// Маршрут для дашборда
-app.get('/panel', (req, res) => {
+// ============================================
+// ЗАЩИЩЕННЫЕ МАРШРУТЫ (ТРЕБУЮТ АВТОРИЗАЦИИ)
+// ============================================
+
+// Маршрут для дашборда - ТЕПЕРЬ ЗАЩИЩЕН СЕССИЕЙ
+app.get('/panel', requireAuth, (req, res) => {
+    console.log('🔐 Доступ к панели для пользователя:', req.session.username);
     res.sendFile(path.join(__dirname, 'public', 'panel_menu', 'panel.html'));
 });
 
-// Маршрут для получения данных таблиц
-app.get('/panel/data', (req, res) => {
+// Маршрут для получения данных таблиц - ЗАЩИЩЕН
+app.get('/panel/data', requireAuth, (req, res) => {
     const tableName = req.query.table;
     const tableMap = {
         clients: 'clients',
@@ -131,8 +242,8 @@ app.get('/panel/data', (req, res) => {
     });
 });
 
-// Маршрут для добавления записи
-app.post('/panel/data/:table', (req, res) => {
+// Маршрут для добавления записи - ЗАЩИЩЕН
+app.post('/panel/data/:table', requireAuth, (req, res) => {
     const tableName = req.params.table;
     const tableMap = {
         clients: 'clients',
@@ -190,12 +301,14 @@ app.post('/panel/data/:table', (req, res) => {
             console.error('Ошибка при добавлении записи:', err);
             return res.status(500).json({ error: 'Ошибка при добавлении записи' });
         }
+        
+        console.log(`✅ Пользователь ${req.session.username} добавил запись в ${tableName}`);
         res.status(201).json({ success: true, id: result.insertId });
     });
 });
 
-// Маршрут для редактирования записи
-app.put('/panel/data/:table/:id', (req, res) => {
+// Маршрут для редактирования записи - ЗАЩИЩЕН
+app.put('/panel/data/:table/:id', requireAuth, (req, res) => {
     const tableName = req.params.table;
     const id = req.params.id;
     const tableMap = {
@@ -257,12 +370,14 @@ app.put('/panel/data/:table/:id', (req, res) => {
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: 'Запись не найдена' });
         }
+        
+        console.log(`✅ Пользователь ${req.session.username} обновил запись в ${tableName}`);
         res.json({ success: true });
     });
 });
 
-// Маршрут для удаления записи
-app.delete('/panel/data/:table/:id', (req, res) => {
+// Маршрут для удаления записи - ЗАЩИЩЕН
+app.delete('/panel/data/:table/:id', requireAuth, (req, res) => {
     const tableName = req.params.table;
     const id = req.params.id;
     const tableMap = {
@@ -290,15 +405,34 @@ app.delete('/panel/data/:table/:id', (req, res) => {
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: 'Запись не найдена' });
         }
+        
+        console.log(`✅ Пользователь ${req.session.username} удалил запись из ${tableName}`);
         res.json({ success: true });
     });
 });
 
-// Маршрут для выхода
+// ============================================
+// МАРШРУТ ДЛЯ ВЫХОДА ИЗ СИСТЕМЫ
+// ============================================
 app.get('/logout', (req, res) => {
-    res.redirect('/');
+    const username = req.session.username;
+    
+    // Уничтожаем сессию
+    req.session.destroy((err) => {
+        if (err) {
+            console.error('Ошибка при выходе:', err);
+            return res.status(500).send('Ошибка при выходе');
+        }
+        
+        console.log('🚪 Пользователь вышел из системы:', username);
+        res.redirect('/');
+    });
 });
 
+// ============================================
+// ЗАПУСК СЕРВЕРА
+// ============================================
 app.listen(3000, () => {
-    console.log('Server running on http://localhost:3000');
+    console.log('🚀 Server running on http://localhost:3000');
+    console.log('🔐 Sessions enabled for security');
 });
