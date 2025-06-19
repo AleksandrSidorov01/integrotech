@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentTable = '';
     let currentRecord = null;
     let isEditMode = false;
+    let currentUser = null;
+    let userPermissions = null;
 
     /**
      * Функция инициализации системы уведомлений
@@ -48,6 +50,29 @@ document.addEventListener('DOMContentLoaded', () => {
     function initToastSystem() {
         if (!window.toast) {
             window.toast = new ToastManager();
+        }
+    }
+
+    async function loadUserInfo() {
+    try {
+        const response = await fetch('/api/user-info');
+        if (response.ok) {
+            currentUser = await response.json();
+            userPermissions = currentUser.permissions;
+            
+            console.log('👤 Текущий пользователь:', currentUser);
+            
+            // Обновляем интерфейс в соответствии с ролью
+            updateUIForRole();
+            showRoleBasedWelcome();
+            
+        } else {
+            console.error('Ошибка получения информации о пользователе');
+            // НЕ перенаправляем, просто логируем ошибку
+        }
+        } catch (error) {
+        console.error('Ошибка запроса информации о пользователе:', error);
+        // НЕ перенаправляем, просто логируем ошибку
         }
     }
 
@@ -372,7 +397,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (data.error) {
-                // Показываем уведомление об ошибке
+                // СПЕЦИАЛЬНАЯ ОБРАБОТКА для ошибок доступа
+                if (data.accessDenied && currentUser && currentUser.role === 'client') {
+                    // Показываем красивое сообщение об ограниченном доступе
+                    tableContent.innerHTML = `
+                        <div class="access-denied-message">
+                            <div class="access-denied-icon">🔒</div>
+                            <h3>Доступ ограничен</h3>
+                            <p>У вас недостаточно прав для просмотра раздела "${tableNames[tableName]}"</p>
+                            <small>Обратитесь к администратору для получения дополнительных прав доступа</small>
+                        </div>
+                    `;
+                    
+                    if (window.toast) {
+                        window.toast.error(
+                            'Доступ запрещен',
+                            `Раздел "${tableNames[tableName]}" недоступен для вашей роли`,
+                            { duration: 5000, sound: true }
+                        );
+                    }
+                    return;
+                }
+                
+                // Обычная ошибка
                 if (window.toast) {
                     window.toast.error(
                         'Ошибка загрузки данных',
@@ -395,21 +442,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
                 
-                // Показываем информационное уведомление
-                if (window.toast) {
-                    window.toast.info(
-                        'Раздел пуст',
-                        `В разделе "${displayName}" пока нет записей`,
-                        { duration: 3000 }
-                    );
-                }
+                // НЕ показываем уведомление для пустых таблиц
                 return;
             }
 
             renderTable(data, tableName);
             
-            // Показываем уведомление об успешной загрузке
-            if (window.toast) {
+            // Показываем уведомление об успешной загрузке только для больших таблиц
+            if (data.length > 5 && window.toast) {
                 window.toast.success(
                     'Данные загружены',
                     `Загружено ${data.length} записей из раздела "${tableNames[tableName]}"`,
@@ -420,7 +460,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error fetching data:', error);
             
-            // Показываем уведомление о сетевой ошибке
             if (window.toast) {
                 window.toast.error(
                     'Ошибка соединения',
@@ -448,29 +487,25 @@ document.addEventListener('DOMContentLoaded', () => {
             header.toLowerCase() !== 'id' && header.toLowerCase() !== 'password'
         );
         
+        // ИСПРАВЛЕНО: Показываем столбец действий только если есть реальные права
+        const showActionsColumn = currentUser && userPermissions && 
+                                currentUser.role !== 'client' &&
+                                (userPermissions.canUpdate || userPermissions.canDelete);
+        
         let tableHTML = `
             <div class="table-container">
                 <table id="data-table">
                     <thead>
                         <tr>
                             ${headers.map(header => `<th>${translateHeader(header)}</th>`).join('')}
-                            <th>Действия</th>
+                            ${showActionsColumn ? '<th>Действия</th>' : ''}
                         </tr>
                     </thead>
                     <tbody>
                         ${data.map(row => `
                             <tr data-id="${row.id}">
                                 ${headers.map(header => `<td>${row[header] || '-'}</td>`).join('')}
-                                <td>
-                                    <div class="action-buttons">
-                                        <button class="btn-edit" onclick="editRecord('${tableName}', ${row.id})">
-                                        ✏️ Изменить
-                                        </button>
-                                        <button class="btn-delete" onclick="deleteRecord('${tableName}', ${row.id})">
-                                        🗑️ Удалить
-                                        </button>
-                                    </div>
-                                </td>
+                                ${showActionsColumn ? generateActionButtons(tableName, row.id) : ''}
                             </tr>
                         `).join('')}
                     </tbody>
@@ -479,8 +514,12 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
 
         tableContent.innerHTML = tableHTML;
+        
+        // Показываем уведомление о правах доступа
+        if (typeof showAccessNotification === 'function') {
+            showAccessNotification(tableName);
+        }
     }
-
     /**
      * Глобальная функция для редактирования записи
      * @param {string} tableName - Название таблицы
@@ -590,25 +629,41 @@ document.addEventListener('DOMContentLoaded', () => {
      * Обработчик для кнопки добавления записи
      */
     addRecordBtn.addEventListener('click', () => {
-        if (currentTable) {
-            // Инициализируем систему уведомлений
-            initToastSystem();
-            
-            isEditMode = false;
-            currentRecord = null;
-            modalTitle.textContent = `Добавить запись - ${tableNames[currentTable]}`;
-            createForm(currentTable);
-            showModal(recordModal);
-            
-            // Показываем подсказку
-            if (window.toast) {
-                window.toast.info(
-                    'Добавление записи',
-                    'Заполните все обязательные поля и нажмите "Сохранить"',
-                    { duration: 3000 }
-                );
-            }
+        if (!currentTable) return;
+        
+        initToastSystem();
+        
+        // Дополнительная проверка для клиентов
+        if (currentUser.role === 'client') {
+            window.toast.error(
+                'Доступ запрещен',
+                'Клиенты не могут добавлять новые записи в систему',
+                { duration: 5000, sound: true }
+            );
+            return;
         }
+        
+        // Проверяем права на создание
+        if (!userPermissions || !userPermissions.canCreate) {
+            window.toast.error(
+                'Недостаточно прав',
+                'У вас нет прав для добавления новых записей',
+                { duration: 5000, sound: true }
+            );
+            return;
+        }
+        
+        isEditMode = false;
+        currentRecord = null;
+        modalTitle.textContent = `Добавить запись - ${tableNames[currentTable]}`;
+        createForm(currentTable);
+        showModal(recordModal);
+        
+        window.toast.info(
+            'Добавление записи',
+            'Заполните все обязательные поля и нажмите "Сохранить"',
+            { duration: 3000 }
+        );
     });
 
     /**
@@ -1031,6 +1086,271 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    /**
+     * НОВАЯ ФУНКЦИЯ: Генерирует кнопки действий в зависимости от прав пользователя
+     */
+    function generateActionButtons(tableName, recordId) {
+        // Если данные пользователя не загружены, показываем стандартные кнопки
+        if (!currentUser || !userPermissions) {
+            return `<td>
+                <div class="action-buttons">
+                    <button class="btn-edit" onclick="editRecord('${tableName}', ${recordId})">
+                        ✏️ Изменить
+                    </button>
+                    <button class="btn-delete" onclick="deleteRecord('${tableName}', ${recordId})">
+                        🗑️ Удалить
+                    </button>
+                </div>
+            </td>`;
+        }
+        
+        let buttons = '<td><div class="action-buttons">';
+        
+        // Кнопка редактирования для сотрудников и админов
+        if (userPermissions.canUpdate && currentUser.role !== 'client') {
+            buttons += `
+                <button class="btn-edit" onclick="editRecord('${tableName}', ${recordId})">
+                    ✏️ Изменить
+                </button>
+            `;
+        }
+        
+        // Кнопка удаления ТОЛЬКО для админов
+        if (userPermissions.canDelete && currentUser.role === 'admin') {
+            buttons += `
+                <button class="btn-delete" onclick="deleteRecord('${tableName}', ${recordId})">
+                    🗑️ Удалить
+                </button>
+            `;
+        }
+        
+        // ИСПРАВЛЕНО: Убираем лишний текст для сотрудников
+        // Не добавляем никакого текста - просто кнопки
+        
+        buttons += '</div></td>';
+        return buttons;
+    }
+    // Загружаем информацию о пользователе (асинхронно, не блокируем интерфейс)
+    loadUserInfo().catch(error => {
+        console.error('Не удалось загрузить информацию о пользователе:', error);
+    });
+
+    // Функция для обновления кнопки добавления (безопасная версия)
+    function updateAddButton() {
+        if (addRecordBtn && currentUser && userPermissions) {
+            if (userPermissions.canCreate && currentUser.role !== 'client') {
+                addRecordBtn.style.display = 'flex';
+            } else {
+                addRecordBtn.style.display = 'none';
+            }
+        }
+    }
+
+    // Обновляем интерфейс когда пользователь загружен
+    function updateUIForRole() {
+        if (!currentUser) return;
+        
+        // Настраиваем доступность разделов меню
+        configureMenuAccess();
+        
+        // Обновляем кнопку добавления
+        updateAddButton();
+        
+        console.log(`🔐 Интерфейс настроен для роли: ${currentUser.role}`);
+        
+        // Добавляем информацию о пользователе в шапку
+        updateHeaderInfo();
+    }
+
+    /**
+     * Обновляет информацию в шапке страницы
+     */
+    function updateHeaderInfo() {
+        const userMenu = document.querySelector('.user-menu');
+        if (userMenu && !userMenu.querySelector('.user-info')) {
+            // Добавляем информацию о пользователе
+            const userInfo = document.createElement('span');
+            userInfo.className = 'user-info';
+            userInfo.style.color = 'rgba(255, 255, 255, 0.8)';
+            userInfo.style.marginRight = '15px';
+            userInfo.style.fontSize = '14px';
+            userInfo.style.display = 'flex';
+            userInfo.style.alignItems = 'center';
+            userInfo.style.gap = '8px';
+            
+            // Иконки для ролей
+            const roleIcons = {
+                'admin': '👑',
+                'employee': '👨‍💼', 
+                'client': '👤'
+            };
+            
+            // Названия ролей на русском
+            const roleNames = {
+                'admin': 'Администратор',
+                'employee': 'Сотрудник',
+                'client': 'Клиент'
+            };
+            
+            userInfo.innerHTML = `
+                <span style="display: flex; align-items: center; gap: 6px;">
+                    ${roleIcons[currentUser.role]} 
+                    <span>${currentUser.fullName}</span>
+                    <small style="opacity: 0.7; font-size: 12px;">(${roleNames[currentUser.role]})</small>
+                </span>
+            `;
+            
+            // Вставляем перед первой ссылкой в меню
+            userMenu.insertBefore(userInfo, userMenu.firstChild);
+        }
+    }
+
+    // Приветствие (безопасная версия)
+    function showRoleBasedWelcome() {
+        if (!currentUser || !window.toast) return;
+        
+        setTimeout(() => {
+            const welcomeMessages = {
+                'admin': {
+                    title: '👑 Добро пожаловать, Администратор!',
+                    message: `${currentUser.firstName}, у вас полный доступ ко всем функциям`,
+                    type: 'success'
+                },
+                'employee': {
+                    title: '👨‍💼 Добро пожаловать, Сотрудник!',
+                    message: `${currentUser.firstName}, вы можете добавлять и редактировать данные`,
+                    type: 'info'
+                },
+                'client': {
+                    title: '👤 Добро пожаловать, Клиент!',
+                    message: `${currentUser.firstName}, вы можете просматривать данные`,
+                    type: 'info'
+                }
+            };
+            
+            const welcome = welcomeMessages[currentUser.role];
+            if (welcome) {
+                window.toast[welcome.type](welcome.title, welcome.message, {
+                    duration: 5000,
+                    sound: true,
+                    closable: true
+                });
+            }
+        }, 1000);
+    }
+
+    // Уведомления о правах доступа (безопасная версия)
+    function showAccessNotification(tableName) {
+        if (!window.toast || !currentUser) return;
+        
+        const sectionName = tableNames[tableName] || tableName;
+        
+        if (currentUser.role === 'client') {
+            window.toast.info(
+                'Режим просмотра',
+                `Раздел "${sectionName}": только просмотр`,
+                { duration: 3000 }
+            );
+        } else if (currentUser.role === 'employee') {
+            window.toast.info(
+                'Права сотрудника',
+                `Раздел "${sectionName}": просмотр, добавление и редактирование`,
+                { duration: 4000 }
+            );
+        }
+    }
+
+    /**
+     * Настраивает доступность разделов меню в зависимости от роли
+     */
+    function configureMenuAccess() {
+        if (!currentUser) return;
+        
+        // Разделы, недоступные для разных ролей
+        const restrictedSections = {
+            'client': ['employees', 'devicemaintenance', 'dataerrors'], // Клиентам недоступны эти разделы
+            'employee': [], // Сотрудникам доступны все разделы
+            'admin': [] // Админам доступно всё
+        };
+        
+        const userRestrictions = restrictedSections[currentUser.role] || [];
+        
+        menuItems.forEach(item => {
+            const tableName = item.getAttribute('data-table');
+            
+            if (userRestrictions.includes(tableName)) {
+                // ПОЛНОСТЬЮ СКРЫВАЕМ недоступные разделы для клиентов
+                item.style.display = 'none';
+                console.log(`🚫 Раздел "${tableName}" скрыт для роли "${currentUser.role}"`);
+            } else {
+                // Показываем доступные разделы
+                item.style.display = 'block';
+                
+                // Добавляем индикатор прав доступа
+                addAccessIndicator(item, tableName);
+            }
+        });
+        
+        // Показываем уведомление о скрытых разделах для клиентов
+        if (currentUser.role === 'client' && userRestrictions.length > 0) {
+            setTimeout(() => {
+                if (window.toast) {
+                    window.toast.info(
+                        'Ограниченный доступ',
+                        `Некоторые разделы скрыты в соответствии с вашими правами доступа`,
+                        { duration: 5000, closable: true }
+                    );
+                }
+            }, 2000);
+        }
+    }
+
+    /**
+     * Добавляет индикатор прав доступа к пунктам меню
+     */
+    function addAccessIndicator(menuItem, tableName) {
+        // Убираем старый индикатор если есть
+        const existingIndicator = menuItem.querySelector('.access-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
+        
+        const accessInfo = document.createElement('small');
+        accessInfo.className = 'access-indicator';
+        accessInfo.style.opacity = '0.6';
+        accessInfo.style.fontSize = '10px';
+        accessInfo.style.display = 'block';
+        accessInfo.style.marginTop = '2px';
+        accessInfo.style.padding = '2px 6px';
+        accessInfo.style.borderRadius = '8px';
+        accessInfo.style.textAlign = 'center';
+        
+        if (currentUser.role === 'admin') {
+            accessInfo.textContent = 'Полный доступ';
+            accessInfo.style.background = 'rgba(0, 200, 81, 0.2)';
+            accessInfo.style.color = '#00c851';
+            accessInfo.style.border = '1px solid rgba(0, 200, 81, 0.3)';
+        } else if (currentUser.role === 'employee') {
+            accessInfo.textContent = 'Редактирование';
+            accessInfo.style.background = 'rgba(255, 193, 7, 0.2)';
+            accessInfo.style.color = '#ffc107';
+            accessInfo.style.border = '1px solid rgba(255, 193, 7, 0.3)';
+        } else if (currentUser.role === 'client') {
+            accessInfo.textContent = 'Только просмотр';
+            accessInfo.style.background = 'rgba(102, 126, 234, 0.2)';
+            accessInfo.style.color = '#667eea';
+            accessInfo.style.border = '1px solid rgba(102, 126, 234, 0.3)';
+        }
+        
+        menuItem.appendChild(accessInfo);
+    }
+
+    configureMenuAccess();
+    initToastSystem();
+    generateActionButtons();
+    showAccessNotification();
+    updateAddButton();
     showWelcomeNotifications();
     enhanceDataOperations();
     setupSessionNotifications();
